@@ -1,13 +1,25 @@
-# 🎙️ GhostDictation: Multi-Cloud Voice Assistant
+# 🎙️ Ghost Dictation: High-Performance AI Voice Assistant
 
-Professional Edge-to-Cloud dictation tool for Windows, built with Python. 
+A specialized Python-based dictation tool designed for ultra-low latency transcription and intelligent grammar correction.
 
-## 🚀 Architectural Highlights
-* **Multi-Cloud Routing:** Uses **Groq API (Whisper-large-v3)** for ultra-low latency transcription (< 1s) and **Google Gemini API** for semantic correction and professional styling.
-* **Resilience Pattern:** Implements a **Cascade Fallback / Circuit Breaker**. If the primary AI model fails or hits a rate limit, the system gracefully degrades to a faster backup model, and ultimately to raw text output.
-* **Security:** Strict separation of concerns. All API keys are securely loaded via `.env` file, isolating them from the application logic.
-* **Native Integration:** Bypasses OS keyboard input issues by utilizing direct clipboard pasting (`pyperclip`), ensuring 100% accuracy for Unicode characters (Slovak diacritics).
+## 🏗️ Architecture: Single-Cloud (Groq LPU)
+This project utilizes a **Single-Cloud architecture** via **Groq API** to achieve near-instant results by leveraging LPU (Language Processing Units).
 
-## ⌨️ Usage
-* `Hold F8` - Raw dictation (Lightning fast, ideal for prompt engineering).
-* `Hold ALT + F8` - AI correction (Records audio, transcribes, and reformats into professional corporate language).
+* **Transcription:** Powered by `whisper-large-v3-turbo` for high-speed speech-to-text.
+* **Intelligence:** Powered by `llama-3.3-70b-versatile` for semantic Slovak grammar correction and formal styling.
+* **Resilience:** Implemented a **Model Cascade Fallback** system. If the primary model fails or reaches a limit, the system automatically attempts recovery via a secondary model (`llama-3.1-8b-instant`) before falling back to the raw transcript.
+
+## ⌨️ Global Hotkeys
+* **[F8] (Standard Mode):** Immediate transcription of speech to the current cursor position.
+* **[ALT + F8] (AI Mode):** Transcription followed by an AI-driven grammar and style check, specifically tuned for formal Slovak business communication.
+
+## 🛡️ Security & Quality
+* **Zero-Environment Leaks:** Sensitive API keys are managed exclusively via `.env` files (excluded from Git).
+* **Zero Hallucination Policy:** Strict system prompting ensures the AI doesn't invent facts or mix languages (Slovak/Czech).
+* **Clipboard Integration:** Uses `pyperclip` for direct OS-level pasting to ensure 100% compatibility with Unicode characters and diacritics.
+
+## 🛠️ Installation
+1. Clone the repository.
+2. Create a virtual environment: `python -m venv venv`.
+3. Install dependencies: `pip install -r requirements.txt`.
+4. Add your `GROQ_API_KEY` to the `.env` file.
