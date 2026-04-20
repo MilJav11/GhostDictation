@@ -7,3 +7,4 @@ venv/
 # Ignoruj Python cache a dočasné audio súbory
 __pycache__/
 *.wav
+start_dictation.bat

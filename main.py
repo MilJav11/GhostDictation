@@ -14,7 +14,6 @@ import pyperclip
 import winsound
 
 from groq import Groq
-import google.generativeai as genai
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -30,12 +29,9 @@ except FileNotFoundError:
     sys.exit(1)
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-if not GROQ_API_KEY or not GEMINI_API_KEY:
-    logging.error("Chýba GROQ_API_KEY alebo GEMINI_API_KEY v .env súbore!")
+if not GROQ_API_KEY:
+    logging.error("Chýba GROQ_API_KEY v .env súbore!")
     sys.exit(1)
-
-genai.configure(api_key=GEMINI_API_KEY)
 
 HOTKEY = config.get("HOTKEY", "f8")
 AI_HOTKEY = config.get("AI_HOTKEY", "alt+f8")
@@ -67,20 +63,41 @@ def type_text(text: str):
 def main():
     global is_recording, audio_data
     
-    logging.info("Inicializujem API klientov...")
+    logging.info("Inicializujem API klienta...")
     client = Groq(api_key=GROQ_API_KEY)
-    logging.info("Klienti inicializovaní úspešne.")
+    logging.info("Klient inicializovaný úspešne.")
     
-    print(f"\n  ✅  WhisperDictation beží (Multi-Cloud verzia).")
+    print(f"\n  ✅  WhisperDictation beží (Single-Cloud verzia).")
     print(f"  Drž [{HOTKEY.upper()}] pre štandardný prepis (Groq) — pusti pre napísanie textu.")
-    print(f"  Drž [{AI_HOTKEY.upper()}] pre prepis + AI gramatiku (Groq -> Gemini) — pusti pre napísanie textu.")
+    print(f"  Drž [{AI_HOTKEY.upper()}] pre prepis + AI gramatiku (Groq -> Llama3) — pusti pre napísanie textu.")
     print(f"  Stlač [Ctrl+C] v tejto konzole pre ukončenie.\n")
     
-    # Príprava Gemini modelov s inštrukciami
-    system_instruction = "Si profesionálny asistent. Oprav gramatiku a preštylizuj text do formálnej slovenčiny. Prísne zachovaj všetky fakty (dni, časy, mená). Nevymýšľaj si žiadny text navyše. Nepoužívaj české slová. Vráť IBA čistý, opravený text bez úvodu alebo záveru."
-    model_pro = genai.GenerativeModel(model_name="gemini-3.1-pro-preview", system_instruction=system_instruction)
-    model_flash = genai.GenerativeModel(model_name="gemini-3-flash-preview", system_instruction=system_instruction)
+    system_instruction = "Si profesionálny slovenský jazykový korektor. Komunikuješ výlučne v spisovnej slovenčine. Akýkoľvek pokus o použitie češtiny bude považovaný za chybu. Tvoja štylistika musí byť 100% slovenská. Tvojou jedinou úlohou je upraviť hrubý text z diktafónu do spisovnej, formálnej slovenčiny. ZAKAZUJEM ti používať akékoľvek české slová (ako napr. omlouvám se, díky, moc, hezky). Oprav gramatiku a štylistiku, ale prísne zachovaj všetky fakty a význam. Vráť IBA čistý opravený text. Žiadny úvod, žiadne vysvetlivky, žiadne formátovanie."
     
+    # Zoznam modelov od najsilnejšieho po najrýchlejší (Kaskáda)
+    model_cascade = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
+
+    def call_groq_with_fallback(text_input):
+        for model_name in model_cascade:
+            try:
+                response = client.chat.completions.create(
+                    model=model_name,
+                    messages=[
+                        {"role": "system", "content": system_instruction},
+                        {"role": "user", "content": text_input}
+                    ]
+                )
+                if response.choices and response.choices[0].message.content:
+                    return response.choices[0].message.content.strip()
+            except Exception as e:
+                logging.warning(f"Model {model_name} zlyhal: {e}. Skúšam ďalší...")
+                continue
+        
+        logging.error("Všetky modely zlyhali. Kritická chyba. Používam pôvodný text.")
+        for _ in range(3):
+            winsound.Beep(400, 100)
+        return text_input
+
     try:
         while True:
             # 1. Čakáme na stlačenie klávesy v polling loope
@@ -89,7 +106,6 @@ def main():
                 continue
             
             # Zistíme, ktorý hotkey bol stlačený.
-            # Skontrolujeme najskôr AI_HOTKEY, lebo môže obsahovať základný HOTKEY (napr. alt+f8 vs f8)
             is_ai_mode = keyboard.is_pressed(AI_HOTKEY)
             
             # 2. Začíname nahrávať
@@ -98,7 +114,7 @@ def main():
             beep_start()
             
             trigger_key = AI_HOTKEY if is_ai_mode else HOTKEY
-            mode_name = "Gemini AI Korektúra" if is_ai_mode else "Základný prepis (Groq)"
+            mode_name = "Llama3 AI Korektúra" if is_ai_mode else "Základný prepis (Groq)"
             logging.info(f"Nahrávam... (Režim: {mode_name}) - Pusti pre prepis")
             
             stream = sd.InputStream(samplerate=SAMPLE_RATE, channels=CHANNELS, dtype='int16', callback=audio_callback)
@@ -141,40 +157,11 @@ def main():
                 text = transcription.text.strip()
                 logging.info(f"Rozpoznaný text (Groq): {text}")
                 
-                # Krok 2: AI Korektúra (Mode 2) s Google Gemini
+                # Krok 2: AI Korektúra (Mode 2) s Groq Llama3
                 if text and is_ai_mode:
-                    original_text = text
-                    
-                    try:
-                        # Attempt 1: gemini-3.1-pro-preview
-                        logging.info("Aplikujem AI korektúru cez gemini-3.1-pro-preview...")
-                        response = model_pro.generate_content(text)
-                        
-                        if response.text:
-                            text = response.text.strip()
-                            logging.info(f"Skorigovaný text: {text}")
-                        else:
-                            raise ValueError("Prázdna odpoveď od Gemini Pro.")
-                            
-                    except Exception as e:
-                        logging.warning(f"Chyba pri gemini-3.1-pro-preview: {e}. Skúšam fallback na gemini-3-flash-preview...")
-                        
-                        try:
-                            # Attempt 2 (Fallback): gemini-3-flash-preview
-                            fallback_response = model_flash.generate_content(text)
-                            
-                            if fallback_response.text:
-                                text = fallback_response.text.strip()
-                                logging.info(f"Skorigovaný text (Fallback): {text}")
-                            else:
-                                raise ValueError("Prázdna odpoveď od Gemini Flash.")
-                                
-                        except Exception as fallback_error:
-                            # Attempt 3 (Final Rescue)
-                            logging.error(f"Fallback zlyhal: {fallback_error}. Kritická chyba. Používam pôvodný text.")
-                            for _ in range(3):
-                                winsound.Beep(400, 100)
-                            text = original_text
+                    logging.info("Aplikujem AI korektúru (Kaskáda modelov)...")
+                    text = call_groq_with_fallback(text)
+                    logging.info(f"Výsledný skorigovaný text: {text}")
 
                 if text:
                     type_text(text)

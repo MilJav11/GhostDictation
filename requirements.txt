@@ -1,5 +1,4 @@
 groq
-google-generativeai
 sounddevice
 numpy
 scipy
