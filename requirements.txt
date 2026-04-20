@@ -1,0 +1,9 @@
+groq
+google-generativeai
+sounddevice
+numpy
+scipy
+keyboard
+pyautogui
+pyperclip
+python-dotenv

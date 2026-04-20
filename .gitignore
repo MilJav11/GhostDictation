@@ -1,0 +1,9 @@
+# Zabezpečenie: Ignoruj súbor s API kľúčmi!
+.env
+
+# Ignoruj virtuálne prostredie
+venv/
+
+# Ignoruj Python cache a dočasné audio súbory
+__pycache__/
+*.wav
