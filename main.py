@@ -182,7 +182,8 @@ def main():
                     transcription = client.audio.transcriptions.create(
                       file=(tmp_filename, file.read()),
                       model="whisper-large-v3-turbo",
-                      language=LANGUAGE
+                      language=LANGUAGE,
+                      prompt="Slovenčina. Bežný hovorený text. čšžýáíéúäôľščťžýáíé vedľa, veľakrát, neprídem, prídeme, ďakujem, môžem, vôbec, väčší, prídem, tíšší, nôž, môj, tvoj, stroj"
                     )
                 
                 text = transcription.text.strip()
