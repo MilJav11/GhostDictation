@@ -14,6 +14,7 @@ import pyperclip
 import winsound
 
 from groq import Groq
+from openai import OpenAI
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -32,6 +33,8 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 if not GROQ_API_KEY:
     logging.error("Chýba GROQ_API_KEY v .env súbore!")
     sys.exit(1)
+
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
 HOTKEY = config.get("HOTKEY", "f8")
 AI_HOTKEY = config.get("AI_HOTKEY", "alt+f8")
@@ -66,21 +69,45 @@ def main():
     logging.info("Inicializujem API klienta...")
     client = Groq(api_key=GROQ_API_KEY)
     logging.info("Klient inicializovaný úspešne.")
+
+    openrouter_client = None
+    if OPENROUTER_API_KEY:
+        openrouter_client = OpenAI(
+            base_url="https://openrouter.ai/api/v1",
+            api_key=OPENROUTER_API_KEY
+        )
+        logging.info("OpenRouter klient inicializovaný (záloha pre SK korektúru).")
+    else:
+        logging.warning("OPENROUTER_API_KEY nenájdený — OpenRouter záloha vypnutá.")
     
     print(f"\n  ✅  WhisperDictation beží (Single-Cloud verzia).")
     print(f"  Drž [{HOTKEY.upper()}] pre štandardný prepis (Groq) — pusti pre napísanie textu.")
     print(f"  Drž [{AI_HOTKEY.upper()}] pre prepis + AI gramatiku (Groq -> Llama3) — pusti pre napísanie textu.")
     print(f"  Stlač [Ctrl+C] v tejto konzole pre ukončenie.\n")
     
-    system_instruction = "Si profesionálny slovenský jazykový korektor. Komunikuješ výlučne v spisovnej slovenčine. Akýkoľvek pokus o použitie češtiny bude považovaný za chybu. Tvoja štylistika musí byť 100% slovenská. Tvojou jedinou úlohou je upraviť hrubý text z diktafónu do spisovnej, formálnej slovenčiny. ZAKAZUJEM ti používať akékoľvek české slová (ako napr. omlouvám se, díky, moc, hezky). Oprav gramatiku a štylistiku, ale prísne zachovaj všetky fakty a význam. Vráť IBA čistý opravený text. Žiadny úvod, žiadne vysvetlivky, žiadne formátovanie."
+    system_instruction = "Si profesionálny korektor VÝLUČNE pre slovenský jazyk. NIKDY nepoužiješ češtinu. Slovenčina ≠ čeština. Zakázané české znaky v tvojom výstupe: ě, ů. Zakázané české slová: moc, díky, hezky, omlouvám, není, ale, protože, jenom, taky, nějak, vůbec, víte, říkám, řekl, může, musí, věc. Ak sa tieto slová vyskytnú vo vstupe — sú to chyby Whisper-u — VŽDY ich nahraď slovenským ekvivalentom. Oprav gramatiku a štylistiku, zachovaj všetky fakty a význam. Vráť IBA čistý opravený slovenský text. Žiadne vysvetlivky, žiadny úvod, žiadne formátovanie."
     
     # Zoznam modelov od najsilnejšieho po najrýchlejší (Kaskáda)
-    model_cascade = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
+    model_cascade = [
+        {"client": client,            "model": "llama-3.3-70b-versatile"},
+        {"client": client,            "model": "llama-3.1-8b-instant"},
+        {"client": openrouter_client, "model": "google/gemma-3-27b-it"},
+    ]
+
+    def is_czech_contaminated(text: str) -> bool:
+        czech_chars = ['ě', 'ů']
+        czech_words = ['moc ', 'díky', 'není ', 'jenom', 'taky ', 'vůbec', 'říkám']
+        t = text.lower()
+        return any(c in t for c in czech_chars) or any(w in t for w in czech_words)
 
     def call_groq_with_fallback(text_input):
-        for model_name in model_cascade:
+        for entry in model_cascade:
+            api_client = entry["client"]
+            model_name = entry["model"]
+            if api_client is None:
+                continue
             try:
-                response = client.chat.completions.create(
+                response = api_client.chat.completions.create(
                     model=model_name,
                     messages=[
                         {"role": "system", "content": system_instruction},
@@ -88,7 +115,11 @@ def main():
                     ]
                 )
                 if response.choices and response.choices[0].message.content:
-                    return response.choices[0].message.content.strip()
+                    result = response.choices[0].message.content.strip()
+                    if is_czech_contaminated(result):
+                        logging.warning(f"Model {model_name} vrátil češtinu! Skúšam ďalší model...")
+                        continue
+                    return result
             except Exception as e:
                 logging.warning(f"Model {model_name} zlyhal: {e}. Skúšam ďalší...")
                 continue
@@ -150,7 +181,7 @@ def main():
                 with open(tmp_filename, "rb") as file:
                     transcription = client.audio.transcriptions.create(
                       file=(tmp_filename, file.read()),
-                      model="whisper-large-v3",
+                      model="whisper-large-v3-turbo",
                       language=LANGUAGE
                     )
                 

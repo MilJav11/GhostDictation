@@ -6,3 +6,4 @@ keyboard
 pyautogui
 pyperclip
 python-dotenv
+openai
