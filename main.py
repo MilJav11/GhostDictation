@@ -21,17 +21,17 @@ load_dotenv()
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s  %(levelname)s      %(message)s', datefmt='%H:%M:%S')
 
-# Načítanie konfigurácie
+# Load configuration
 try:
     with open("config.json", "r", encoding="utf-8") as f:
         config = json.load(f)
 except FileNotFoundError:
-    logging.error("Subor config.json nebol najdeny!")
+    logging.error("File config.json not found!")
     sys.exit(1)
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 if not GROQ_API_KEY:
-    logging.error("Chýba GROQ_API_KEY v .env súbore!")
+    logging.error("Missing GROQ_API_KEY in .env file!")
     sys.exit(1)
 
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
@@ -42,7 +42,7 @@ SAMPLE_RATE = config.get("SAMPLE_RATE", 16000)
 CHANNELS = config.get("CHANNELS", 1)
 LANGUAGE = config.get("LANGUAGE", "sk")
 
-# Globálne premenné pre zvuk
+# Global variables for audio
 audio_data = []
 is_recording = False
 
@@ -66,9 +66,9 @@ def type_text(text: str):
 def main():
     global is_recording, audio_data
     
-    logging.info("Inicializujem API klienta...")
+    logging.info("Initializing API client...")
     client = Groq(api_key=GROQ_API_KEY)
-    logging.info("Klient inicializovaný úspešne.")
+    logging.info("Client initialized successfully.")
 
     openrouter_client = None
     if OPENROUTER_API_KEY:
@@ -76,18 +76,18 @@ def main():
             base_url="https://openrouter.ai/api/v1",
             api_key=OPENROUTER_API_KEY
         )
-        logging.info("OpenRouter klient inicializovaný (záloha pre SK korektúru).")
+        logging.info("OpenRouter client initialized (backup for SK proofreading).")
     else:
-        logging.warning("OPENROUTER_API_KEY nenájdený — OpenRouter záloha vypnutá.")
+        logging.warning("OPENROUTER_API_KEY not found — OpenRouter backup disabled.")
     
-    print(f"\n  ✅  WhisperDictation beží (Single-Cloud verzia).")
-    print(f"  Drž [{HOTKEY.upper()}] pre štandardný prepis (Groq) — pusti pre napísanie textu.")
-    print(f"  Drž [{AI_HOTKEY.upper()}] pre prepis + AI gramatiku (Groq -> Llama3) — pusti pre napísanie textu.")
-    print(f"  Stlač [Ctrl+C] v tejto konzole pre ukončenie.\n")
+    print(f"\n  ✅  WhisperDictation is running (Single-Cloud version).")
+    print(f"  Hold [{HOTKEY.upper()}] for standard transcription (Groq) — release to type text.")
+    print(f"  Hold [{AI_HOTKEY.upper()}] for transcription + AI grammar (Groq -> Llama3) — release to type text.")
+    print(f"  Press [Ctrl+C] in this console to exit.\n")
     
     system_instruction = "Si profesionálny korektor VÝLUČNE pre slovenský jazyk. NIKDY nepoužiješ češtinu. Slovenčina ≠ čeština. Zakázané české znaky v tvojom výstupe: ě, ů. Zakázané české slová: moc, díky, hezky, omlouvám, není, ale, protože, jenom, taky, nějak, vůbec, víte, říkám, řekl, může, musí, věc. Ak sa tieto slová vyskytnú vo vstupe — sú to chyby Whisper-u — VŽDY ich nahraď slovenským ekvivalentom. Oprav gramatiku a štylistiku, zachovaj všetky fakty a význam. Vráť IBA čistý opravený slovenský text. Žiadne vysvetlivky, žiadny úvod, žiadne formátovanie."
     
-    # Zoznam modelov od najsilnejšieho po najrýchlejší (Kaskáda)
+    # List of models from strongest to fastest (Cascade)
     model_cascade = [
         {"client": client,            "model": "llama-3.3-70b-versatile"},
         {"client": client,            "model": "llama-3.1-8b-instant"},
@@ -117,59 +117,59 @@ def main():
                 if response.choices and response.choices[0].message.content:
                     result = response.choices[0].message.content.strip()
                     if is_czech_contaminated(result):
-                        logging.warning(f"Model {model_name} vrátil češtinu! Skúšam ďalší model...")
+                        logging.warning(f"Model {model_name} returned Czech! Trying another model...")
                         continue
                     return result
             except Exception as e:
-                logging.warning(f"Model {model_name} zlyhal: {e}. Skúšam ďalší...")
+                logging.warning(f"Model {model_name} failed: {e}. Trying another...")
                 continue
         
-        logging.error("Všetky modely zlyhali. Kritická chyba. Používam pôvodný text.")
+        logging.error("All models failed. Critical error. Using original text.")
         for _ in range(3):
             winsound.Beep(400, 100)
         return text_input
 
     try:
         while True:
-            # 1. Čakáme na stlačenie klávesy v polling loope
+            # 1. Waiting for key press in polling loop
             if not keyboard.is_pressed(HOTKEY) and not keyboard.is_pressed(AI_HOTKEY):
                 time.sleep(0.01)
                 continue
             
-            # Zistíme, ktorý hotkey bol stlačený.
+            # Determine which hotkey was pressed.
             is_ai_mode = keyboard.is_pressed(AI_HOTKEY)
             
-            # 2. Začíname nahrávať
+            # 2. Start recording
             is_recording = True
             audio_data = []
             beep_start()
             
             trigger_key = AI_HOTKEY if is_ai_mode else HOTKEY
-            mode_name = "Llama3 AI Korektúra" if is_ai_mode else "Základný prepis (Groq)"
-            logging.info(f"Nahrávam... (Režim: {mode_name}) - Pusti pre prepis")
+            mode_name = "Llama3 AI Proofreading" if is_ai_mode else "Basic transcription (Groq)"
+            logging.info(f"Recording... (Mode: {mode_name}) - Release for transcription")
             
             stream = sd.InputStream(samplerate=SAMPLE_RATE, channels=CHANNELS, dtype='int16', callback=audio_callback)
             stream.start()
             
-            # 3. Kým používateľ drží klávesu, čakáme (polling loop arch)
+            # 3. While the user holds the key, wait (polling loop arch)
             while keyboard.is_pressed(trigger_key):
                 time.sleep(0.05)
             
-            # 4. Klávesa pustená, zastavujeme nahrávanie
+            # 4. Key released, stop recording
             is_recording = False
             stream.stop()
             stream.close()
             beep_stop()
-            logging.info("Nahrávanie ukončené. Odosielam do cloudu...")
+            logging.info("Recording finished. Sending to cloud...")
             
-            # 5. Spracovanie audia
+            # 5. Process audio
             if not audio_data:
                 continue
                 
             audio_np = np.concatenate(audio_data, axis=0)
             duration = len(audio_np) / SAMPLE_RATE
             if duration < 0.3:
-                logging.info("Nahrávka bola príliš krátka, ignorujem.")
+                logging.info("Recording was too short, ignoring.")
                 continue
                 
             with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_file:
@@ -177,7 +177,7 @@ def main():
                 wav.write(tmp_filename, SAMPLE_RATE, audio_np)
                 
             try:
-                # Krok 1: Prepis cez Whisper-large-v3 (Groq)
+                # Step 1: Transcription via Whisper-large-v3 (Groq)
                 with open(tmp_filename, "rb") as file:
                     transcription = client.audio.transcriptions.create(
                       file=(tmp_filename, file.read()),
@@ -187,23 +187,23 @@ def main():
                     )
                 
                 text = transcription.text.strip()
-                logging.info(f"Rozpoznaný text (Groq): {text}")
+                logging.info(f"Recognized text (Groq): {text}")
                 
-                # Krok 2: AI Korektúra (Mode 2) s Groq Llama3
+                # Step 2: AI Proofreading (Mode 2) with Groq Llama3
                 if text and is_ai_mode:
-                    logging.info("Aplikujem AI korektúru (Kaskáda modelov)...")
+                    logging.info("Applying AI proofreading (Model cascade)...")
                     text = call_groq_with_fallback(text)
-                    logging.info(f"Výsledný skorigovaný text: {text}")
+                    logging.info(f"Final corrected text: {text}")
 
                 if text:
                     type_text(text)
             except Exception as e:
-                logging.error(f"Chyba pri spracovaní: {e}")
+                logging.error(f"Error during processing: {e}")
             finally:
                 os.remove(tmp_filename)
                 
     except KeyboardInterrupt:
-        print("\n  Vypínam aplikáciu...")
+        print("\n  Shutting down application...")
 
 if __name__ == "__main__":
     main()
